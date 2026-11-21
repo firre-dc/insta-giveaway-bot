@@ -1,14 +1,15 @@
 [project]
 name = "insta-bot"
 version = "0.1.0"
-description = "Add your description here"
+description = "Instagram comment tooling"
 readme = "README.md"
 authors = [
-    { name = "Firre De Clippel", email = "firredeclippel@gmail.com" }
+    { name = "Firre De Clippel"}
 ]
 requires-python = ">=3.12"
 dependencies = [
     "instagrapi>=3.2.19",
+    "python-dotenv>=1.2.4",
 ]
 
 [project.scripts]

@@ -5,10 +5,11 @@ from __future__ import annotations
 import argparse
 import getpass
 import os
+import random
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
 
+from dotenv import load_dotenv
 from instagrapi import Client
 from instagrapi.exceptions import (
     BadCredentials,
@@ -24,7 +25,22 @@ from instagrapi.exceptions import (
 )
 from instagrapi.types import Account
 
-MAX_COMMENT_LENGTH = 2_200
+load_dotenv()
+
+COMMENT_AMOUNT = 20
+GIVEAWAY_ITEMS = ["Koffiemachine", "Pascual", "Corner", "Amis", "Poliakov", "Peterman"]
+
+
+def load_usernames(current_user: str) -> list[str]:
+    """Read the comma-separated username list from the environment."""
+    usernames = []
+    for entry in os.environ.get("INSTAGRAM_USERNAMES", "").split(","):
+        username = entry.strip().removeprefix("@")
+        if username and username != current_user: # prevent users from tagging themselves
+            usernames.append(username)
+    return usernames
+
+
 DEFAULT_SESSION_FILE = (
     Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     / "insta-bot"
@@ -45,10 +61,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Instagram post/reel URL, or a numeric media PK",
     )
     parser.add_argument(
-        "comment",
-        help="Comment text, or '-' to read it from standard input",
-    )
-    parser.add_argument(
         "--username",
         help="Instagram username (default: INSTAGRAM_USERNAME)",
     )
@@ -64,46 +76,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Log in and resolve the post, but do not publish the comment",
     )
     return parser
-
-
-def read_comment(value: str) -> str:
-    text = sys.stdin.read() if value == "-" else value
-    text = text.strip()
-    if not text:
-        raise InputError("The comment cannot be empty.")
-    if len(text) > MAX_COMMENT_LENGTH:
-        raise InputError(
-            f"The comment is {len(text)} characters; Instagram allows at most "
-            f"{MAX_COMMENT_LENGTH}."
-        )
-    return text
-
-
-def validate_post(reference: str) -> None:
-    """Reject IDs/URLs that clearly are not Instagram posts before logging in."""
-    reference = reference.strip()
-    if reference.isdigit():
-        return
-
-    parsed = urlparse(reference)
-    host = (parsed.hostname or "").lower()
-    if parsed.scheme not in {"http", "https"} or host not in {
-        "instagram.com",
-        "www.instagram.com",
-        "m.instagram.com",
-    }:
-        raise InputError(
-            "The post must be a numeric media PK or an instagram.com post URL."
-        )
-
-    parts = [part for part in parsed.path.split("/") if part]
-    valid_post_path = len(parts) >= 2 and parts[0] in {"p", "reel", "reels", "tv"}
-    valid_share_path = len(parts) >= 3 and parts[:2] == ["share", "p"]
-    if not (valid_post_path or valid_share_path):
-        raise InputError(
-            "The URL does not point to an Instagram post, reel, or IGTV video."
-        )
-
 
 def resolve_media_pk(client: Client, reference: str) -> str:
     reference = reference.strip()
@@ -186,9 +158,6 @@ def save_session(client: Client, session_file: Path) -> bool:
 
 
 def run(args: argparse.Namespace) -> int:
-    comment = read_comment(args.comment)
-    validate_post(args.post)
-
     client = Client()
     session_file = args.session_file.expanduser()
     account = restore_session(client, session_file)
@@ -225,16 +194,23 @@ def run(args: argparse.Namespace) -> int:
         else:
             print(f"Logged in as @{account.username}.")
 
+    usernames = load_usernames(account.username)
+    tagged_users = " ".join("@" + str(u) for u in random.sample(usernames, 2))
+    comment = tagged_users + " " + str(random.choice(GIVEAWAY_ITEMS))
+
     media_pk = resolve_media_pk(client, args.post)
     if args.dry_run:
         print(f"Dry run: would comment on media {media_pk}:")
         print(comment)
         return 0
 
-    result = client.media_comment(media_pk, comment)
-    print(f"Commented on media {media_pk} as @{account.username}.")
-    print(f"Comment ID: {result.pk}")
-    return 0
+    while True:
+        try:
+            result = client.media_comment(media_pk, comment)
+            print(f"Commented on media {media_pk} as @{account.username}.")
+            print(f"Comment ID: {result.pk}")
+        except RateLimitError:
+            return 1
 
 
 def main(argv: list[str] | None = None) -> int:

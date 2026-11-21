@@ -1,9 +1,14 @@
 # insta-bot
 
-Post a comment on an Instagram post with
-[instagrapi](https://github.com/subzeroid/instagrapi).
+Instagram comment tooling with [instagrapi](https://github.com/subzeroid/instagrapi),
 
-## Usage
+
+**NOTE: Instagram can rate-limit, challenge, or lock accounts that automate actions. Use a dedicated account at your own risk, and do not spam comments.**
+## Live comment script
+
+Post a single comment on an Instagram post with instagrapi.
+
+### Usage
 
 ```bash
 export INSTAGRAM_USERNAME="your_username"
