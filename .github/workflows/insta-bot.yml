@@ -4,9 +4,6 @@ name: Instagram comment bot
 # repository private, or remove the cache steps if that is not acceptable.
 
 on:
-  schedule:
-    # Every 4 hours at minute 52 (UTC). Done to avoid waiting time at minute 0
-    - cron: "52 */4 * * *"
   workflow_dispatch:
     inputs:
       user:
