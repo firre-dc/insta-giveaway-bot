@@ -4,12 +4,9 @@ name: Instagram comment bot
 # repository private, or remove the cache steps if that is not acceptable.
 
 on:
-  push:
-    branches:
-      - main
   schedule:
-    # Every 4 hours at minute 12 (UTC). minute 12 to avoid waiting time
-    - cron: "12 */4 * * *"
+    # Every 4 hours at minute 52 (UTC). Done to avoid waiting time at minute 0
+    - cron: "52 */4 * * *"
   workflow_dispatch:
     inputs:
       user:

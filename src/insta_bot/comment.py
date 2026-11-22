@@ -316,12 +316,9 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     print(f"Commenting {COMMENT_AMOUNT} times...")
-    print(f"Comment will be: {comment}")
 
     for _ in range(COMMENT_AMOUNT):
-        result = client.media_comment(media_pk, comment)
-        print(f"Commented on media {media_pk} as @{account.username}.")
-        print(f"Comment ID: {result.pk}")
+        client.media_comment(media_pk, comment)
     return 0
 
 
