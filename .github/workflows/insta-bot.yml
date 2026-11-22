@@ -1,0 +1,106 @@
+name: Instagram comment bot
+
+# The session cache contains Instagram authentication cookies. Keep the
+# repository private, or remove the cache steps if that is not acceptable.
+
+on:
+  schedule:
+    # Every 4 hours at minute 0 (UTC).
+    - cron: "0 */4 * * *"
+  workflow_dispatch:
+    inputs:
+      post:
+        description: "Post/reel URL or media PK (defaults to INSTAGRAM_URL)"
+        required: false
+        type: string
+      user:
+        description: "Account index (defaults to INSTAGRAM_USER_INDEX, or 0)"
+        required: false
+        type: string
+      dry_run:
+        description: "Log in and resolve the post without publishing comments"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: insta-bot
+  cancel-in-progress: false
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      INSTAGRAM_USER_INDEX: ${{ inputs.user || vars.INSTAGRAM_USER_INDEX || '0' }}
+      INSTAGRAM_DRY_RUN: ${{ inputs.dry_run || 'false' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.4.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Restore Instagram sessions
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.config/insta-bot/sessions
+          key: insta-session-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            insta-session-${{ runner.os }}-
+
+      - name: Validate configuration
+        env:
+          INSTAGRAM_URL: ${{ inputs.post || vars.INSTAGRAM_URL || secrets.INSTAGRAM_URL }}
+          INSTAGRAM_USERNAMES: ${{ secrets.INSTAGRAM_USERNAMES }}
+          INSTAGRAM_PASSWORDS: ${{ secrets.INSTAGRAM_PASSWORDS }}
+        run: |
+          if [ -z "$INSTAGRAM_URL" ]; then
+            echo "::error::Set the INSTAGRAM_URL repository variable (or secret), or pass the post input."
+            exit 1
+          fi
+          if [ -z "$INSTAGRAM_USERNAMES" ]; then
+            echo "::error::Set the INSTAGRAM_USERNAMES repository secret."
+            exit 1
+          fi
+          if [ -z "$INSTAGRAM_PASSWORDS" ]; then
+            echo "::error::Set the INSTAGRAM_PASSWORDS repository secret."
+            exit 1
+          fi
+
+      - name: Prepare session directory
+        run: mkdir -p "$HOME/.config/insta-bot/sessions"
+
+      - name: Run the bot
+        env:
+          INSTAGRAM_URL: ${{ inputs.post || vars.INSTAGRAM_URL || secrets.INSTAGRAM_URL }}
+          INSTAGRAM_USERNAMES: ${{ secrets.INSTAGRAM_USERNAMES }}
+          INSTAGRAM_PASSWORDS: ${{ secrets.INSTAGRAM_PASSWORDS }}
+        run: |
+          args=(--user "$INSTAGRAM_USER_INDEX")
+          if [ "$INSTAGRAM_DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          uv run --frozen insta-bot "${args[@]}"
+
+      - name: Save Instagram sessions
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.config/insta-bot/sessions
+          key: insta-session-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}

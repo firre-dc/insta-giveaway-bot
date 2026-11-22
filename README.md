@@ -6,33 +6,46 @@ Instagram comment tooling with [instagrapi](https://github.com/subzeroid/instagr
 **NOTE: Instagram can rate-limit, challenge, or lock accounts that automate actions. Use a dedicated account at your own risk, and do not spam comments.**
 ## Live comment script
 
-Post a single comment on an Instagram post with instagrapi.
+Post comments on an Instagram post with instagrapi, using one of the accounts
+configured in `.env`.
 
-### Usage
+### Configuration
 
-```bash
-export INSTAGRAM_USERNAME="your_username"
-export INSTAGRAM_PASSWORD="your_password"
+Create a `.env` file in the project root with the account lists and post URL:
 
-uv run insta-bot "https://www.instagram.com/p/SHORTCODE/" "Nice shot!"
+```dotenv
+INSTAGRAM_USERNAMES=account_one,account_two
+INSTAGRAM_PASSWORDS=secret_one,secret_two
+INSTAGRAM_URL=https://www.instagram.com/p/SHORTCODE/
 ```
 
-The post argument can be a post, reel, or IGTV URL, or a numeric media PK.
-Pass `-` as the comment to read it from standard input:
+The password at each position belongs to the username at the same position.
+Select an account by its zero-based index with `--user`:
 
 ```bash
-printf 'Hello from the CLI!' | uv run insta-bot "https://www.instagram.com/reel/SHORTCODE/" -
+uv run insta-bot --user 0 "https://www.instagram.com/p/SHORTCODE/"
 ```
 
-If `INSTAGRAM_USERNAME` or `INSTAGRAM_PASSWORD` is not set, the script prompts
-for the missing value. The login session is cached in
-`~/.config/insta-bot/session.json` (or `$XDG_CONFIG_HOME/insta-bot/session.json`)
-so later runs can reuse it. Override the location with `--session-file`.
+`--user` defaults to `0`. Commas separate entries, so passwords cannot contain
+commas. The comment tags two random accounts from `INSTAGRAM_USERNAMES`
+(excluding the account running the bot) and adds a random giveaway item.
+
+You can also set `INSTAGRAM_URL` in `.env` and omit the post argument:
+
+```bash
+uv run insta-bot --user 0
+```
+
+Each account caches its own session in
+`~/.config/insta-bot/sessions/<username>.json` (or
+`$XDG_CONFIG_HOME/insta-bot/sessions/<username>.json`) so switching accounts
+does not overwrite another account's session. Override the location with
+`--session-file`.
 
 Use `--dry-run` to log in and resolve the post without publishing anything:
 
 ```bash
-uv run insta-bot --dry-run "https://www.instagram.com/p/SHORTCODE/" "Test"
+uv run insta-bot --user 1 --dry-run "https://www.instagram.com/p/SHORTCODE/"
 ```
 
 Show all options with:
@@ -41,6 +54,28 @@ Show all options with:
 uv run insta-bot --help
 ```
 
+## GitHub Actions
+
+The workflow in `.github/workflows/insta-bot.yml` runs the bot every 4 hours
+(at minute 0 UTC) and can also be started manually from the Actions tab.
+
+Configure the repository before enabling it:
+
+1. Add repository secrets `INSTAGRAM_USERNAMES` and `INSTAGRAM_PASSWORDS`
+   with the same comma-separated values you use in `.env`.
+2. Add a repository variable (or secret) `INSTAGRAM_URL` with the post/reel
+   URL or media PK to comment on.
+3. Optionally add a repository variable `INSTAGRAM_USER_INDEX` to choose the
+   account index (defaults to `0`).
+
+Manual runs can override the post URL and account index with the `post` and
+`user` inputs, and set `dry_run` to log in and resolve the post without
+publishing comments.
+
+The workflow caches `~/.config/insta-bot/sessions` between runs to avoid
+logging in from scratch every time. That cache contains authentication
+cookies, so keep the repository private or remove the cache steps.
+
 ## Notes
 
 - The session file contains authentication cookies. Treat it like a password
@@ -48,4 +83,6 @@ uv run insta-bot --help
 - Instagram can rate-limit, challenge, or lock accounts that automate actions.
   Use a dedicated account at your own risk, and do not spam comments.
 - If Instagram asks for two-factor authentication, the script prompts for the
-  code.
+  code. GitHub Actions runs are non-interactive, so a 2FA prompt or security
+  challenge fails the run. Complete the challenge in the Instagram app and
+  re-run the workflow.
