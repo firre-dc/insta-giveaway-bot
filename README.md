@@ -16,6 +16,7 @@ Create a `.env` file in the project root with the account lists and post URL:
 ```dotenv
 INSTAGRAM_USERNAMES=account_one,account_two
 INSTAGRAM_PASSWORDS=secret_one,secret_two
+INSTAGRAM_TAGGABLE_USERNAMES=friend_one,friend_two,friend_three
 INSTAGRAM_URL=https://www.instagram.com/p/SHORTCODE/
 ```
 
@@ -27,8 +28,10 @@ uv run insta-bot --user 0 "https://www.instagram.com/p/SHORTCODE/"
 ```
 
 `--user` defaults to `0`. Commas separate entries, so passwords cannot contain
-commas. The comment tags two random accounts from `INSTAGRAM_USERNAMES`
-(excluding the account running the bot) and adds a random giveaway item.
+commas. The accounts used for login come from `INSTAGRAM_USERNAMES`. The
+comment tags two random accounts from the separate
+`INSTAGRAM_TAGGABLE_USERNAMES` list, skips the account running the bot, and
+adds a random giveaway item. That list needs at least two usable usernames.
 
 You can also set `INSTAGRAM_URL` in `.env` and omit the post argument:
 
@@ -57,7 +60,8 @@ uv run insta-bot --help
 ## GitHub Actions
 
 The workflow in `.github/workflows/insta-bot.yml` runs the bot every 4 hours
-(at minute 0 UTC) and can also be started manually from the Actions tab.
+(at minute 0 UTC), after pushes to `main`, and can also be started manually
+from the Actions tab.
 
 Configure the repository before enabling it:
 
@@ -65,16 +69,19 @@ Configure the repository before enabling it:
    with the same comma-separated values you use in `.env`.
 2. Add a repository variable (or secret) `INSTAGRAM_URL` with the post/reel
    URL or media PK to comment on.
-3. Optionally add a repository variable `INSTAGRAM_USER_INDEX` to choose the
+3. Add a repository variable (or secret) `INSTAGRAM_TAGGABLE_USERNAMES` with
+   the comma-separated usernames to tag. It needs at least two usable names.
+4. Optionally add a repository variable `INSTAGRAM_USER_INDEX` to choose the
    account index (defaults to `0`).
 
-Manual runs can override the post URL and account index with the `post` and
-`user` inputs, and set `dry_run` to log in and resolve the post without
-publishing comments.
+Manual runs can override the account index with the `user` input, and set
+`dry_run` to log in and resolve the post without publishing comments.
 
 The workflow caches `~/.config/insta-bot/sessions` between runs to avoid
-logging in from scratch every time. That cache contains authentication
-cookies, so keep the repository private or remove the cache steps.
+logging in from scratch every time. The cache key includes `uv.lock`, so a
+dependency upgrade starts with fresh sessions. That cache contains
+authentication cookies, so keep the repository private or remove the cache
+steps.
 
 ## Notes
 
@@ -82,6 +89,9 @@ cookies, so keep the repository private or remove the cache steps.
   and do not commit or share it.
 - Instagram can rate-limit, challenge, or lock accounts that automate actions.
   Use a dedicated account at your own risk, and do not spam comments.
+- If Instagram reports that the app version is out of date, the bot discards
+  the cached session and logs in with a fresh client. If it still happens,
+  wait before retrying; repeated login attempts can trigger a throttle.
 - If Instagram asks for two-factor authentication, the script prompts for the
   code. GitHub Actions runs are non-interactive, so a 2FA prompt or security
   challenge fails the run. Complete the challenge in the Instagram app and

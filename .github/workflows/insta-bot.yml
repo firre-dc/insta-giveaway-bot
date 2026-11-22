@@ -9,10 +9,6 @@ on:
     - cron: "0 */4 * * *"
   workflow_dispatch:
     inputs:
-      post:
-        description: "Post/reel URL or media PK (defaults to INSTAGRAM_URL)"
-        required: false
-        type: string
       user:
         description: "Account index (defaults to INSTAGRAM_USER_INDEX, or 0)"
         required: false
@@ -59,18 +55,19 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ~/.config/insta-bot/sessions
-          key: insta-session-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: insta-session-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            insta-session-${{ runner.os }}-
+            insta-session-${{ runner.os }}-${{ hashFiles('uv.lock') }}-
 
       - name: Validate configuration
         env:
-          INSTAGRAM_URL: ${{ inputs.post || vars.INSTAGRAM_URL || secrets.INSTAGRAM_URL }}
+          INSTAGRAM_URL: ${{ vars.INSTAGRAM_URL || secrets.INSTAGRAM_URL }}
           INSTAGRAM_USERNAMES: ${{ secrets.INSTAGRAM_USERNAMES }}
           INSTAGRAM_PASSWORDS: ${{ secrets.INSTAGRAM_PASSWORDS }}
+          INSTAGRAM_TAGGABLE_USERNAMES: ${{ vars.INSTAGRAM_TAGGABLE_USERNAMES || secrets.INSTAGRAM_TAGGABLE_USERNAMES }}
         run: |
           if [ -z "$INSTAGRAM_URL" ]; then
-            echo "::error::Set the INSTAGRAM_URL repository variable (or secret), or pass the post input."
+            echo "::error::Set the INSTAGRAM_URL repository variable (or secret)."
             exit 1
           fi
           if [ -z "$INSTAGRAM_USERNAMES" ]; then
@@ -81,15 +78,20 @@ jobs:
             echo "::error::Set the INSTAGRAM_PASSWORDS repository secret."
             exit 1
           fi
+          if [ -z "$INSTAGRAM_TAGGABLE_USERNAMES" ]; then
+            echo "::error::Set the INSTAGRAM_TAGGABLE_USERNAMES repository variable (or secret)."
+            exit 1
+          fi
 
       - name: Prepare session directory
         run: mkdir -p "$HOME/.config/insta-bot/sessions"
 
       - name: Run the bot
         env:
-          INSTAGRAM_URL: ${{ inputs.post || vars.INSTAGRAM_URL || secrets.INSTAGRAM_URL }}
+          INSTAGRAM_URL: ${{ vars.INSTAGRAM_URL || secrets.INSTAGRAM_URL }}
           INSTAGRAM_USERNAMES: ${{ secrets.INSTAGRAM_USERNAMES }}
           INSTAGRAM_PASSWORDS: ${{ secrets.INSTAGRAM_PASSWORDS }}
+          INSTAGRAM_TAGGABLE_USERNAMES: ${{ vars.INSTAGRAM_TAGGABLE_USERNAMES || secrets.INSTAGRAM_TAGGABLE_USERNAMES }}
         run: |
           args=(--user "$INSTAGRAM_USER_INDEX")
           if [ "$INSTAGRAM_DRY_RUN" = "true" ]; then
@@ -103,4 +105,4 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ~/.config/insta-bot/sessions
-          key: insta-session-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: insta-session-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}

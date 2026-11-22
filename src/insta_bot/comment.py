@@ -16,6 +16,7 @@ from instagrapi.exceptions import (
     ChallengeRequired,
     ClientError,
     ClientLoginRequired,
+    ClientNeedsUpgradeError,
     CommentsDisabled,
     LoginRequired,
     MediaNotFound,
@@ -26,22 +27,12 @@ from instagrapi.types import Account
 
 load_dotenv()
 
-COMMENT_AMOUNT = 50 + random.randint(0,20)
+COMMENT_AMOUNT = 60 + random.randint(0,20)
 GIVEAWAY_ITEMS = ["Koffiemachine", "Pascual", "Corner", "Amis", "Poliakov", "Peterman"]
 
 
 class InputError(ValueError):
     """Raised when the user supplies invalid input."""
-
-
-def load_usernames(current_user: str) -> list[str]:
-    """Read the comma-separated username list from the environment."""
-    usernames = []
-    for entry in os.environ.get("INSTAGRAM_USERNAMES", "").split(","):
-        username = entry.strip().removeprefix("@")
-        if username and username != current_user: # prevent users from tagging themselves
-            usernames.append(username)
-    return usernames
 
 
 def _env_list(name: str) -> list[str]:
@@ -50,6 +41,27 @@ def _env_list(name: str) -> list[str]:
     if not raw:
         return []
     return [entry.strip() for entry in raw.split(",")]
+
+
+def load_taggable_usernames(current_user: str) -> list[str]:
+    """Read the separate taggable list, excluding the account running the bot."""
+    current = current_user.casefold()
+    usernames: list[str] = []
+    for entry in _env_list("INSTAGRAM_TAGGABLE_USERNAMES"):
+        username = entry.removeprefix("@")
+        if (
+            username
+            and username.casefold() != current
+            and username not in usernames
+        ):
+            usernames.append(username)
+
+    if len(usernames) < 2:
+        raise InputError(
+            "INSTAGRAM_TAGGABLE_USERNAMES must contain at least two unique "
+            "usernames other than the account running the bot."
+        )
+    return usernames
 
 
 def load_accounts() -> list[tuple[str, str]]:
@@ -166,6 +178,33 @@ def get_credentials(user_index: int) -> tuple[str, str]:
     return accounts[user_index]
 
 
+def is_needs_upgrade_error(exc: Exception) -> bool:
+    """Whether Instagram rejected the client/session as out of date."""
+    if isinstance(exc, ClientNeedsUpgradeError):
+        return True
+    message = str(exc).casefold()
+    return any(
+        marker in message
+        for marker in (
+            "version of instagram is out of date",
+            "needs_upgrade",
+            "app_out_of_date",
+        )
+    )
+
+
+def clear_session_file(session_file: Path) -> None:
+    """Remove a session so the next login uses the current client profile."""
+    try:
+        session_file.unlink(missing_ok=True)
+    except OSError as exc:
+        print(
+            f"warning: could not remove the stale session file "
+            f"{session_file}: {exc}",
+            file=sys.stderr,
+        )
+
+
 def restore_session(client: Client, session_file: Path) -> Account | None:
     """Load a saved session and return the account if it is still valid."""
     if not session_file.is_file():
@@ -182,21 +221,26 @@ def restore_session(client: Client, session_file: Path) -> Account | None:
         # A stale cookie/session is normal; the caller will log in again.
         print("The saved session has expired; logging in again.", file=sys.stderr)
         return None
+    except ClientError as exc:
+        # Sessions saved by an older instagrapi release pin an older Android
+        # app profile, which Instagram rejects with "out of date".
+        if is_needs_upgrade_error(exc):
+            print(
+                "The saved session uses an outdated app profile; logging in "
+                "again with a fresh client.",
+                file=sys.stderr,
+            )
+            return None
+        raise
 
     print(f"Using the saved session for @{account.username}.")
     return account
 
 
-def login(
-    client: Client,
-    username: str,
-    password: str,
-    *,
-    fresh_session: bool,
-) -> None:
+def login(client: Client, username: str, password: str) -> None:
     """Authenticate, prompting for a 2FA code if Instagram asks for one."""
     try:
-        client.login(username, password, relogin=fresh_session)
+        client.login(username, password)
     except TwoFactorRequired:
         code = input("Two-factor authentication code: ").strip()
         if not code:
@@ -244,12 +288,11 @@ def run(args: argparse.Namespace) -> int:
         account = None
 
     if account is None:
-        login(
-            client,
-            username,
-            password,
-            fresh_session=session_file.is_file(),
-        )
+        # load_settings() pins an older device/app profile in the client, so
+        # start over with a new client that uses instagrapi's current profile.
+        clear_session_file(session_file)
+        client = Client()
+        login(client, username, password)
         account = client.account_info()
         if save_session(client, session_file):
             print(
@@ -259,8 +302,11 @@ def run(args: argparse.Namespace) -> int:
         else:
             print(f"Logged in as @{account.username}.")
 
-    usernames = load_usernames(account.username)
-    tagged_users = " ".join("@" + str(u) for u in random.sample(usernames, 2))
+    taggable_usernames = load_taggable_usernames(account.username)
+    tagged_users = " ".join(
+        "@" + username
+        for username in random.sample(taggable_usernames, 2)
+    )
     comment = tagged_users + " " + str(random.choice(GIVEAWAY_ITEMS))
 
     media_pk = resolve_media_pk(client, post_reference)
@@ -268,6 +314,9 @@ def run(args: argparse.Namespace) -> int:
         print(f"Dry run: would comment on media {media_pk}:")
         print(comment)
         return 0
+
+    print(f"Commenting {COMMENT_AMOUNT} times...")
+    print(f"Comment will be: {comment}")
 
     for _ in range(COMMENT_AMOUNT):
         result = client.media_comment(media_pk, comment)
@@ -328,6 +377,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     except ClientError as exc:
+        if is_needs_upgrade_error(exc):
+            print(
+                "error: Instagram still rejected the client as out of date "
+                "after a fresh login. Wait before retrying; repeated login "
+                "attempts can trigger an account-level throttle.",
+                file=sys.stderr,
+            )
+            return 1
         print(f"error: Instagram request failed: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
