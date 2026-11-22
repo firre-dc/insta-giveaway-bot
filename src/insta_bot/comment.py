@@ -264,15 +264,10 @@ def save_session(client: Client, session_file: Path) -> bool:
     return True
 
 
-def run(args: argparse.Namespace) -> int:
-    username, password = get_credentials(args.user)
-    post_reference = get_post_reference(args.post)
-    session_file = (
-        args.session_file.expanduser()
-        if args.session_file is not None
-        else default_session_file(username)
-    )
-
+def create_authenticated_client(
+    username: str, password: str, session_file: Path
+) -> tuple[Client, Account]:
+    """Return a logged-in client and its account, reusing a cached session."""
     client = Client()
     account = restore_session(client, session_file)
 
@@ -301,6 +296,20 @@ def run(args: argparse.Namespace) -> int:
             )
         else:
             print(f"Logged in as @{account.username}.")
+
+    return client, account
+
+
+def run(args: argparse.Namespace) -> int:
+    username, password = get_credentials(args.user)
+    post_reference = get_post_reference(args.post)
+    session_file = (
+        args.session_file.expanduser()
+        if args.session_file is not None
+        else default_session_file(username)
+    )
+
+    client, account = create_authenticated_client(username, password, session_file)
 
     taggable_usernames = load_taggable_usernames(account.username)
     tagged_users = " ".join(

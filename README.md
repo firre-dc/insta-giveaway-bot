@@ -57,6 +57,65 @@ Show all options with:
 uv run insta-bot --help
 ```
 
+## Winning chances script
+
+Estimate the giveaway odds for the accounts listed in `.env`, using a local
+cache of the comments on the post configured there:
+
+```bash
+uv run insta-winning-chances --username reader_account --password secret
+```
+
+The post URL is always read from `INSTAGRAM_URL` in `.env`; there is no URL
+argument. `--username`/`--password` are for a separate reading account, not
+the bot accounts in `.env`. Omit `--password` to be prompted for it securely:
+
+```bash
+uv run insta-winning-chances --username reader_account
+```
+
+The session is cached per reading account in
+`$XDG_CONFIG_HOME/insta-bot/sessions/<username>.json`; override it with
+`--session-file`. The accounts whose odds are reported still come from
+`INSTAGRAM_USERNAMES` and `INSTAGRAM_TAGGABLE_USERNAMES` in `.env`.
+
+Giveaway comments look like `@friend @friend prize`. A comment counts when it
+contains one of the prize words from `GIVEAWAY_ITEMS` as a case-insensitive
+substring, so `Koffiemachine!!` still matches. Use `--word` to supply a
+different list (repeat the flag or use comma-separated values):
+
+```bash
+uv run insta-winning-chances --word Koffiemachine --word Pascual
+```
+
+Every distinct `@mention` in a matching comment counts as one entry. An
+account's chance is its entries divided by all entries in matching comments,
+which is also the chance of winning when one winner is drawn per prize from
+the tagged accounts. Chances are reported overall and per prize word. Words
+come from `src/insta_bot/comment.py` by default; updates to that list apply to
+both scripts.
+
+Comments are cached locally, so repeat runs only download comments added since
+the previous run. The cache lives at
+`$XDG_CONFIG_HOME/insta-bot/comments/<media-pk>.json` (normally
+`~/.config/insta-bot/comments/`). Use `--comments-file comments.json` to store
+it elsewhere (`--save-comments` is an alias), or `--refresh` to download every
+comment again. A missing or corrupt cache is treated as an empty one.
+
+Other options:
+
+- `--json` prints the counts and probabilities as JSON.
+
+```bash
+uv run insta-winning-chances --username reader_account --refresh --json
+```
+
+Run the calculation tests with:
+
+```bash
+uv run python -m unittest discover -s tests -v
+```
+
 ## GitHub Actions
 
 The workflow in `.github/workflows/insta-bot.yml` runs the bot every 4 hours
