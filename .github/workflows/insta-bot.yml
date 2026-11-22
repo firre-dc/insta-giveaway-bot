@@ -86,6 +86,11 @@ jobs:
       - name: Prepare session directory
         run: mkdir -p "$HOME/.config/insta-bot/sessions"
 
+      - name: Seed session
+        env:
+          S: ${{ secrets.INSTAGRAM_SESSION_B64 }}
+        run: echo "$S" | base64 -d > "$HOME/.config/insta-bot/sessions/fdc_prive.json"
+      
       - name: Run the bot
         env:
           INSTAGRAM_URL: ${{ vars.INSTAGRAM_URL || secrets.INSTAGRAM_URL }}
