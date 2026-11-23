@@ -88,8 +88,8 @@ jobs:
           S: ${{ secrets.INSTAGRAM_SESSION_B64 }}
         run: echo "$S" | base64 -d > "$HOME/.config/insta-bot/sessions/fdc_prive.json"
 
-      - name: Random delay (0-15 min)
-        run: sleep $((RANDOM % 900))
+      - name: Random delay (0-2 min)
+        run: sleep $((RANDOM % 120))
 
       - name: Run the bot
         env:
