@@ -28,10 +28,18 @@ uv run insta-bot --user 0 "https://www.instagram.com/p/SHORTCODE/"
 ```
 
 `--user` defaults to `0`. Commas separate entries, so passwords cannot contain
-commas. The accounts used for login come from `INSTAGRAM_USERNAMES`. The
+commas. The accounts used for login come from `INSTAGRAM_USERNAMES`. Each
 comment tags two random accounts from the separate
 `INSTAGRAM_TAGGABLE_USERNAMES` list, skips the account running the bot, and
 adds a random giveaway item. That list needs at least two usable usernames.
+Comments posted in one run are distinct so Instagram does not reject repeated
+text.
+
+By default the bot posts one comment. Use `--count` (or
+`INSTAGRAM_COMMENT_COUNT`) to post more, but keep it low: Instagram blocks
+accounts that post many comments in a short window. The bot stops with a clear
+error as soon as Instagram refuses a comment. A comment action block can last
+from hours to days, and retrying while blocked can extend it.
 
 You can also set `INSTAGRAM_URL` in `.env` and omit the post argument:
 
@@ -88,12 +96,13 @@ different list (repeat the flag or use comma-separated values):
 uv run insta-winning-chances --word Koffiemachine --word Pascual
 ```
 
-Every distinct `@mention` in a matching comment counts as one entry. An
-account's chance is its entries divided by all entries in matching comments,
-which is also the chance of winning when one winner is drawn per prize from
-the tagged accounts. Chances are reported overall and per prize word. Words
-come from `src/insta_bot/comment.py` by default; updates to that list apply to
-both scripts.
+Every matching comment counts as one entry for the account that posted it,
+regardless of which accounts it mentions. An account's chance is its entries
+divided by all entries in matching comments, which is also the chance of
+winning when one winner is drawn per prize from the commenters. Chances are
+reported overall and per prize word. Words come from
+`src/insta_bot/comment.py` by default; updates to that list apply to both
+scripts.
 
 Comments are cached locally, so repeat runs only download comments added since
 the previous run. The cache lives at
@@ -118,9 +127,8 @@ uv run python -m unittest discover -s tests -v
 
 ## GitHub Actions
 
-The workflow in `.github/workflows/insta-bot.yml` runs the bot every 4 hours
-(at minute 0 UTC), after pushes to `main`, and can also be started manually
-from the Actions tab.
+The workflow in `.github/workflows/insta-bot.yml` is started manually from the
+Actions tab. It no longer runs on a schedule.
 
 Configure the repository before enabling it:
 
@@ -132,9 +140,13 @@ Configure the repository before enabling it:
    the comma-separated usernames to tag. It needs at least two usable names.
 4. Optionally add a repository variable `INSTAGRAM_USER_INDEX` to choose the
    account index (defaults to `0`).
+5. Optionally add a repository variable `INSTAGRAM_COMMENT_COUNT` to post more
+   than one comment per run (defaults to `1`). Keep this low to avoid a
+   temporary comment block.
 
-Manual runs can override the account index with the `user` input, and set
-`dry_run` to log in and resolve the post without publishing comments.
+Manual runs can override the account index with the `user` input, set
+`dry_run` to log in and resolve the post without publishing comments, and set
+`count` to override the comment count.
 
 The workflow caches `~/.config/insta-bot/sessions` between runs to avoid
 logging in from scratch every time. The cache key includes `uv.lock`, so a

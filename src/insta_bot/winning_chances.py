@@ -1,11 +1,12 @@
 """Estimate giveaway winning chances from a cached copy of a post's comments.
 
 Comments are downloaded incrementally and saved locally so repeat runs only
-fetch new comments.  Giveaway comments have the shape ``@friend @friend prize``.  Instagram users
-often add punctuation or other characters to the prize word, so words are
-matched with a case-insensitive substring check instead of an exact match.
-Every ``@mention`` in a matching comment counts as one entry; an account's
-chance of winning is its entries divided by all entries.
+fetch new comments.  Giveaway comments have the shape ``@friend @friend prize``.
+Instagram users often add punctuation or other characters to the prize word, so
+words are matched with a case-insensitive substring check instead of an exact
+match.  Every matching comment is one entry for the account that posted it,
+regardless of who it mentions; an account's chance of winning is its entries
+divided by all entries.
 """
 
 from __future__ import annotations
@@ -42,8 +43,6 @@ from insta_bot.comment import (
     is_needs_upgrade_error,
     resolve_media_pk,
 )
-
-MENTION_RE = re.compile(r"@([A-Za-z0-9._]+)")
 
 
 def parse_words(values: list[str] | None) -> list[str]:
@@ -157,11 +156,11 @@ def analyse_comments(
 ) -> GiveawayStats:
     """Count entries per prize word for the tracked accounts.
 
-    A comment that contains several prize words is counted for each of them,
-    but only once in the combined ``overall`` stats.  Repeated mentions of the
-    same account in one comment count as a single entry.
+    Every matching comment is one entry for the account that posted it.
+    Mentions of other accounts in the text do not affect the result.  A comment
+    that contains several prize words is counted for each of them, but only
+    once in the combined ``overall`` stats.
     """
-    # TODO: THIS FUNCTION IS NOT CORRECT, IT CURRENTLY TRACKS MENTIONS, NOT USERS POSTING
     per_word = [PrizeStats(word=word) for word in words]
     overall = PrizeStats(word="All prize words")
     stats_by_word = {stats.word.casefold(): stats for stats in per_word}
@@ -179,17 +178,18 @@ def analyse_comments(
         if not matched_words:
             continue
 
-        mentions = {mention.casefold() for mention in MENTION_RE.findall(text)}
+        user = getattr(comment, "user", None)
+        author = (getattr(user, "username", "") or "").casefold()
         matching_comments += 1
         overall.comments += 1
-        overall.entries += len(mentions)
-        for mention in mentions & tracked:
-            overall.counts[mention] += 1
+        overall.entries += 1
+        if author in tracked:
+            overall.counts[author] += 1
         for stats in matched_words:
             stats.comments += 1
-            stats.entries += len(mentions)
-            for mention in mentions & tracked:
-                stats.counts[mention] += 1
+            stats.entries += 1
+            if author in tracked:
+                stats.counts[author] += 1
 
     return GiveawayStats(
         total_comments=len(comments),
@@ -204,10 +204,12 @@ def _format_section(
 ) -> list[str]:
     lines = [
         f"  Matching comments: {stats.comments:,} | "
-        f"entries (@mentions): {stats.entries:,}"
+        f"entries (one per comment): {stats.entries:,}"
     ]
     if not stats.entries:
-        lines.append("  No @mentions found, so no chances can be calculated.")
+        lines.append(
+            "  No matching comments found, so no chances can be calculated."
+        )
         return lines
 
     ranked = sorted(tracked_usernames, key=stats.chance, reverse=True)
@@ -229,8 +231,8 @@ def format_report(
         f"Analysed {stats.total_comments:,} comments; "
         f"{stats.matching_comments:,} contain a prize word.",
         "",
-        "Chance = your @mentions / all @mentions in matching comments "
-        "(one winner per draw).",
+        "Chance = your comments / all matching comments "
+        "(one entry per comment).",
         "",
         "Overall (all prize words)",
         *_format_section(stats.overall, tracked_usernames, width),

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import os
 import random
 import sys
 from pathlib import Path
+from time import sleep
 
 from dotenv import load_dotenv
 from instagrapi import Client
@@ -18,21 +20,33 @@ from instagrapi.exceptions import (
     ClientLoginRequired,
     ClientNeedsUpgradeError,
     CommentsDisabled,
+    FeedbackRequired,
     LoginRequired,
     MediaNotFound,
     RateLimitError,
     TwoFactorRequired,
+    UnknownError,
 )
 from instagrapi.types import Account
 
 load_dotenv()
 
-COMMENT_AMOUNT = 60 + random.randint(0,20)
-GIVEAWAY_ITEMS = ["Koffiemachine", "Pascual", "Corner", "Amis", "Poliakov", "Peterman"]
+COMMENT_AMOUNT = 50 + random.randint(0, 30)
+GIVEAWAY_ITEMS = ["Koffiemachine", "Pascual", "Corner", "Amis", "Poliakov", "Peterman", "Okay", "Zero"]
+COMMENT_BLOCK_KEYS = {
+    "comment_si_blocked",
+    "comment_blocked",
+    "commenting_blocked",
+    "feedback_required",
+}
 
 
 class InputError(ValueError):
     """Raised when the user supplies invalid input."""
+
+
+class CommentBlockedError(RuntimeError):
+    """Raised when Instagram temporarily refuses new comments."""
 
 
 def _env_list(name: str) -> list[str]:
@@ -62,6 +76,18 @@ def load_taggable_usernames(current_user: str) -> list[str]:
             "usernames other than the account running the bot."
         )
     return usernames
+
+
+def build_comments(taggable_usernames: list[str]) -> list[str]:
+    """Build distinct comments so Instagram does not reject repeated text."""
+    pairs = list(itertools.combinations(taggable_usernames, 2))
+    variants = [
+        f"@{first} @{second} {item}"
+        for first, second in pairs
+        for item in GIVEAWAY_ITEMS
+    ]
+    random.shuffle(variants)
+    return variants
 
 
 def load_accounts() -> list[tuple[str, str]]:
@@ -193,6 +219,30 @@ def is_needs_upgrade_error(exc: Exception) -> bool:
     )
 
 
+def is_comment_blocked_error(exc: Exception) -> bool:
+    """Whether Instagram refused a comment because of a temporary block."""
+    if isinstance(exc, (RateLimitError, FeedbackRequired)):
+        return True
+
+    error_key = str(getattr(exc, "comment_error_key", "")).casefold()
+    if error_key in COMMENT_BLOCK_KEYS:
+        return True
+
+    message = str(exc).casefold()
+    if any(key in message for key in COMMENT_BLOCK_KEYS):
+        return True
+    if "unable to comment" in message:
+        return True
+
+    # Instagram returns this generic 400 body for a comment action block,
+    # without the comment_error_key field that older responses included.
+    return (
+        isinstance(exc, UnknownError)
+        and str(getattr(exc, "status_code", "")) == "400"
+        and "something went wrong" in message
+    )
+
+
 def clear_session_file(session_file: Path) -> None:
     """Remove a session so the next login uses the current client profile."""
     try:
@@ -312,30 +362,48 @@ def run(args: argparse.Namespace) -> int:
     client, account = create_authenticated_client(username, password, session_file)
 
     taggable_usernames = load_taggable_usernames(account.username)
-    tagged_users = " ".join(
-        "@" + username
-        for username in random.sample(taggable_usernames, 2)
-    )
-    comment = tagged_users + " " + str(random.choice(GIVEAWAY_ITEMS))
-
+    comments = build_comments(taggable_usernames)
     media_pk = resolve_media_pk(client, post_reference)
     if args.dry_run:
-        print(f"Dry run: would comment on media {media_pk}:")
-        print(comment)
+        print(f"Dry run: would comment on media {media_pk} (this is only the first item in the list):")
+        print(comments[0])
         return 0
 
     print(f"Commenting {COMMENT_AMOUNT} times...")
 
-    for _ in range(COMMENT_AMOUNT):
-        client.media_comment(media_pk, comment)
+    comment = comments[0]
+    for posted in range(COMMENT_AMOUNT):
+        if posted % random.randint(20, 30) == 0:
+            comment = comments[random.randint(0, len(comments) - 1)]
+        sleep(2 * random.random())
+
+        try:
+            client.media_comment(media_pk, comment)
+        except ClientError as exc:
+            print(exc)
+            if not is_comment_blocked_error(exc):
+                raise
+            if posted:
+                outcome = f"after {posted} comment{'s' if posted != 1 else ''}"
+            else:
+                outcome = "before the first comment"
+            raise CommentBlockedError(
+                f"Instagram is blocking new comments from @{account.username} "
+                f"{outcome}. This is a temporary comment action block, not a "
+                "login problem. Stop the bot and wait at least 24-48 hours; "
+                "retrying now can extend the block. Check Account Status in "
+                "the Instagram app."
+            ) from exc
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-
     try:
+        args = build_parser().parse_args(argv)
         return run(args)
+    except CommentBlockedError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     except InputError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -32,8 +32,8 @@ from insta_bot.winning_chances import (
 WORDS = ["Koffiemachine", "Pascual"]
 
 
-def comment(text: str) -> SimpleNamespace:
-    return SimpleNamespace(text=text)
+def comment(username: str, text: str) -> SimpleNamespace:
+    return SimpleNamespace(text=text, user=SimpleNamespace(username=username))
 
 
 def raw_comment(pk: str, text: str, username: str) -> dict:
@@ -68,9 +68,9 @@ class AnalyseCommentsTests(unittest.TestCase):
     def test_substring_matching_and_case(self) -> None:
         stats = analyse_comments(
             [
-                comment("@alice @bob Koffiemachine!!"),
-                comment("@alice @bob koffiemachine"),
-                comment("@alice @bob no prize here"),
+                comment("alice", "@bob Koffiemachine!!"),
+                comment("bob", "@alice koffiemachine"),
+                comment("alice", "no prize here"),
             ],
             WORDS,
             ["alice", "bob"],
@@ -79,51 +79,71 @@ class AnalyseCommentsTests(unittest.TestCase):
         self.assertEqual(stats.total_comments, 3)
         self.assertEqual(stats.matching_comments, 2)
         self.assertEqual(prize.comments, 2)
-        self.assertEqual(prize.entries, 4)
-        self.assertEqual(prize.counts["alice"], 2)
+        self.assertEqual(prize.entries, 2)
+        self.assertEqual(prize.counts["alice"], 1)
+        self.assertEqual(prize.counts["bob"], 1)
         self.assertAlmostEqual(prize.chance("alice"), 0.5)
 
-    def test_entries_include_untracked_mentions(self) -> None:
+    def test_mentions_of_tracked_users_do_not_count(self) -> None:
         stats = analyse_comments(
-            [comment("@alice @stranger Koffiemachine")], WORDS, ["alice"]
+            [comment("stranger", "@alice Koffiemachine")], WORDS, ["alice"]
         )
         prize = stats.per_word[0]
-        self.assertEqual(prize.entries, 2)
-        self.assertAlmostEqual(prize.chance("alice"), 0.5)
+        self.assertEqual(prize.entries, 1)
+        self.assertEqual(prize.counts["alice"], 0)
+        self.assertAlmostEqual(prize.chance("alice"), 0.0)
 
-    def test_repeated_mention_counts_once_per_comment(self) -> None:
+    def test_each_matching_comment_counts_once(self) -> None:
         stats = analyse_comments(
-            [comment("@alice @alice Koffiemachine")], WORDS, ["alice"]
+            [comment("alice", "@alice @alice Koffiemachine")], WORDS, ["alice"]
         )
         self.assertEqual(stats.per_word[0].entries, 1)
         self.assertEqual(stats.per_word[0].counts["alice"], 1)
 
-    def test_case_insensitive_mentions(self) -> None:
+    def test_repeated_comments_each_count(self) -> None:
         stats = analyse_comments(
-            [comment("@ALICE @bob Koffiemachine")], WORDS, ["alice"]
+            [
+                comment("alice", "Koffiemachine"),
+                comment("alice", "Koffiemachine"),
+            ],
+            WORDS,
+            ["alice"],
+        )
+        self.assertEqual(stats.per_word[0].entries, 2)
+        self.assertEqual(stats.per_word[0].counts["alice"], 2)
+
+    def test_case_insensitive_usernames(self) -> None:
+        stats = analyse_comments(
+            [comment("ALICE", "@bob Koffiemachine")], WORDS, ["alice"]
         )
         self.assertEqual(stats.per_word[0].counts["alice"], 1)
 
     def test_comments_with_multiple_words_counted_once_overall(self) -> None:
         stats = analyse_comments(
-            [comment("@alice @bob Koffiemachine Pascual")],
+            [comment("alice", "@bob Koffiemachine Pascual")],
             WORDS,
             ["alice", "bob"],
         )
         self.assertEqual(stats.matching_comments, 1)
         self.assertEqual(stats.overall.comments, 1)
+        self.assertEqual(stats.overall.entries, 1)
         self.assertEqual([p.comments for p in stats.per_word], [1, 1])
 
     def test_no_entries(self) -> None:
         stats = analyse_comments(
-            [comment("Koffiemachine!")], WORDS, ["alice"]
+            [comment("alice", "no prize here")], WORDS, ["alice"]
         )
         self.assertEqual(stats.per_word[0].chance("alice"), 0.0)
-        self.assertIn("No @mentions", format_report(stats, ["alice"]))
+        self.assertIn("No matching comments", format_report(stats, ["alice"]))
 
     def test_report_contains_percentages(self) -> None:
         stats = analyse_comments(
-            [comment("@alice @bob Koffiemachine")], WORDS, ["alice", "bob"]
+            [
+                comment("alice", "@bob Koffiemachine"),
+                comment("bob", "@alice Koffiemachine"),
+            ],
+            WORDS,
+            ["alice", "bob"],
         )
         report = format_report(stats, ["alice", "bob"])
         self.assertIn("50.00% chance", report)
@@ -234,7 +254,7 @@ class RunTests(unittest.TestCase):
         second_pages = [
             {
                 "comments": [
-                    raw_comment("3", "@alice @bob Koffiemachine", "alice"),
+                    raw_comment("3", "@alice @bob Koffiemachine", "bob"),
                     raw_comment("1", "@alice @bob Koffiemachine!!", "alice"),
                 ]
             }
@@ -283,8 +303,9 @@ class RunTests(unittest.TestCase):
         payload = json.loads(second_output.getvalue())
         self.assertEqual(payload["total_comments"], 3)
         self.assertEqual(payload["matching_comments"], 2)
-        self.assertEqual(payload["overall"]["entries"], 4)
+        self.assertEqual(payload["overall"]["entries"], 2)
         self.assertAlmostEqual(payload["overall"]["chances"]["alice"], 0.5)
+        self.assertAlmostEqual(payload["overall"]["chances"]["bob"], 0.5)
         self.assertEqual(payload["per_word"][0]["word"], "Koffiemachine")
 
 
