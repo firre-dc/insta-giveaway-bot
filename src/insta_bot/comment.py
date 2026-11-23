@@ -31,8 +31,8 @@ from instagrapi.types import Account
 
 load_dotenv()
 
-COMMENT_AMOUNT = 50 + random.randint(0, 30)
-GIVEAWAY_ITEMS = ["Koffiemachine", "Pascual", "Corner", "Amis", "Poliakov", "Peterman", "Okay", "Zero"]
+COMMENT_AMOUNT = 70 + random.randint(0, 30)
+GIVEAWAY_ITEMS = ["Koffiemachine", "Pascual", "Corner", "Amis", "Poliakov", "Peterman", "Okay"]
 COMMENT_BLOCK_KEYS = {
     "comment_si_blocked",
     "comment_blocked",
@@ -286,9 +286,18 @@ def restore_session(client: Client, session_file: Path) -> Account | None:
     print(f"Using the saved session for @{account.username}.")
     return account
 
+def challenge_code_handler(username: str, choice) -> str:
+    """Prompt for the code Instagram sends (email/SMS) during a challenge."""
+    code = input(
+        f"Challenge code sent to you via {choice} for @{username}: "
+    ).strip()
+    if not code:
+        raise InputError("A challenge code is required.")
+    return code
 
 def login(client: Client, username: str, password: str) -> None:
     """Authenticate, prompting for a 2FA code if Instagram asks for one."""
+    client.challenge_code_handler = challenge_code_handler
     try:
         client.login(username, password)
     except TwoFactorRequired:
@@ -296,7 +305,9 @@ def login(client: Client, username: str, password: str) -> None:
         if not code:
             raise InputError("A two-factor authentication code is required.")
         client.login(username, password, verification_code=code)
-
+    except ChallengeRequired:
+        client.challenge_resolve(client.last_json)
+        client.login(username, password)
 
 def save_session(client: Client, session_file: Path) -> bool:
     """Save the session, but do not block commenting if the cache fails."""
