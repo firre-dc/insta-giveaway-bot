@@ -83,10 +83,13 @@ jobs:
       - name: Prepare session directory
         run: mkdir -p "$HOME/.config/insta-bot/sessions"
 
-      - name: Seed session
+      - name: Seed Instagram sessions
         env:
-          S: ${{ secrets.INSTAGRAM_SESSION_B64 }}
-        run: echo "$S" | base64 -d > "$HOME/.config/insta-bot/sessions/fdc_prive.json"
+          SESSIONS_B64: ${{ secrets.INSTAGRAM_SESSIONS_B64 }}
+        run: |
+          if [ -n "$SESSIONS_B64" ]; then
+            echo "$SESSIONS_B64" | base64 -d | tar -xzf - --skip-old-files -C "$HOME/.config/insta-bot/sessions"
+          fi
 
       - name: Random delay (0-2 min)
         run: sleep $((RANDOM % 120))
